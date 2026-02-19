@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, desc
+from sqlalchemy.orm import selectinload
 from typing import List
 
 from database import get_session
@@ -31,7 +32,7 @@ async def get_current_user(authorization: str = Header(None), session: AsyncSess
     return result.scalar_one_or_none()
 
 
-@router.get("/posts/{post_id}/comments")
+@router.get("/posts/{post_id}/comments", response_model=List[CommentResponse])
 async def list_comments(
     post_id: int,
     session: AsyncSession = Depends(get_session),
@@ -50,13 +51,13 @@ async def list_comments(
     # 댓글 조회
     stmt = select(Comment).where(
         Comment.post_id == post_id
-    ).order_by(Comment.created_at).limit(limit)
-    
+    ).options(selectinload(Comment.author)).order_by(Comment.created_at).limit(limit)
+
     result = await session.execute(stmt)
     return result.scalars().all()
 
 
-@router.post("/posts/{post_id}/comments", status_code=status.HTTP_201_CREATED)
+@router.post("/posts/{post_id}/comments", response_model=CommentResponse, status_code=status.HTTP_201_CREATED)
 async def create_comment(
     post_id: int,
     comment_data: CommentCreate,
@@ -69,7 +70,7 @@ async def create_comment(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated"
         )
-    
+
     # 게시글 존재 확인
     stmt = select(Post).where(Post.id == post_id)
     post = await session.execute(stmt)
@@ -78,7 +79,7 @@ async def create_comment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Post not found"
         )
-    
+
     new_comment = Comment(
         post_id=post_id,
         author_id=current_user.id,
@@ -86,9 +87,13 @@ async def create_comment(
     )
     session.add(new_comment)
     await session.commit()
-    await session.refresh(new_comment)
-    
-    return new_comment
+
+    # author를 포함해서 재조회 (refresh는 관계를 로드하지 않음)
+    stmt = select(Comment).where(Comment.id == new_comment.id).options(
+        selectinload(Comment.author)
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one()
 
 
 @router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)

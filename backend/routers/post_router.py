@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, desc
+from sqlalchemy.orm import selectinload
 from typing import List
 
 from database import get_session
-from models import Post, Board, User, Role
+from models import Post, Board, User, Role, Comment, Attachment
 from schemas import PostCreate, PostUpdate, PostResponse, PostDetailResponse
 from auth import decode_token
 
@@ -31,7 +32,7 @@ async def get_current_user(authorization: str = Header(None), session: AsyncSess
     return result.scalar_one_or_none()
 
 
-@router.get("/boards/{board_id}/posts")
+@router.get("/boards/{board_id}/posts", response_model=List[PostResponse])
 async def list_posts_by_board(
     board_id: int,
     session: AsyncSession = Depends(get_session),
@@ -47,40 +48,44 @@ async def list_posts_by_board(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Board not found"
         )
-    
+
     # 게시글 조회
     stmt = select(Post).where(
         Post.board_id == board_id
+    ).options(
+        selectinload(Post.author),
+        selectinload(Post.board),
     ).order_by(desc(Post.created_at)).limit(limit).offset(offset)
-    
+
     result = await session.execute(stmt)
-    posts = result.scalars().all()
-    
-    # 부분적 응답만 반환
-    return posts
+    return result.scalars().all()
 
 
-@router.get("/posts/{post_id}")
+@router.get("/posts/{post_id}", response_model=PostDetailResponse)
 async def get_post(
     post_id: int,
     session: AsyncSession = Depends(get_session)
 ):
     """게시글 상세 조회 + 조회수 증가 (공개)"""
-    stmt = select(Post).where(Post.id == post_id)
+    stmt = select(Post).where(Post.id == post_id).options(
+        selectinload(Post.author),
+        selectinload(Post.board),
+        selectinload(Post.comments).selectinload(Comment.author),
+        selectinload(Post.attachments),
+    )
     post = await session.execute(stmt)
     post = post.scalar_one_or_none()
-    
+
     if not post:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Post not found"
         )
-    
-    # 조회수 증가
+
+    # 조회수 증가 (refresh 없이 — refresh하면 eager load 관계가 날아감)
     post.view_count += 1
     await session.commit()
-    await session.refresh(post)
-    
+
     return post
 
 
@@ -227,7 +232,7 @@ async def delete_post(
     await session.commit()
 
 
-@router.get("/search")
+@router.get("/search", response_model=List[PostResponse])
 async def search_posts(
     q: str = Query(..., min_length=1),
     session: AsyncSession = Depends(get_session),
@@ -240,7 +245,10 @@ async def search_posts(
             Post.title.ilike(search_term),
             Post.content.ilike(search_term)
         )
+    ).options(
+        selectinload(Post.author),
+        selectinload(Post.board),
     ).order_by(desc(Post.created_at)).limit(limit)
-    
+
     result = await session.execute(stmt)
     return result.scalars().all()
