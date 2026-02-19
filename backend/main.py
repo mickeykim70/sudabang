@@ -26,7 +26,7 @@ app = FastAPI(
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 실제 프로덕션: 특정 도메인만
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],  # Vite 포트
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
