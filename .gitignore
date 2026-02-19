@@ -1,0 +1,17 @@
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+
+# Node
+frontend/node_modules/
+
+# DB
+data/board.db
+
+# OS
+.DS_Store
+
+# 첨부파일 (용량 큼)
+uploads/*
+!uploads/.gitkeep
