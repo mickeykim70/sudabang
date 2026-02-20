@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import BoardListPage from './pages/BoardListPage';
 import PostListPage from './pages/PostListPage';
@@ -6,10 +6,10 @@ import PostDetailPage from './pages/PostDetailPage';
 import PostWritePage from './pages/PostWritePage';
 
 function App() {
+  useLocation(); // navigate 시 App 재렌더링 보장
   const token = localStorage.getItem('token');
 
   return (
-    <Router>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={token ? <BoardListPage /> : <Navigate to="/login" />} />
@@ -17,7 +17,6 @@ function App() {
         <Route path="/posts/:postId" element={<PostDetailPage />} />
         <Route path="/boards/:boardId/write" element={token ? <PostWritePage /> : <Navigate to="/login" />} />
       </Routes>
-    </Router>
   );
 }
 
