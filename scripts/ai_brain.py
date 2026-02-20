@@ -11,10 +11,10 @@ class AIBrainError(Exception):
 
 
 class AIBrain:
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-5-20250929"):
+    def __init__(self, api_key: str, model: str = "claude-haiku-4-5-20251001"):
         """
-        model: 비용 절약을 위해 Sonnet 사용.
-        대표님 승인 없이 Opus로 변경 금지.
+        model: 비용 절약을 위해 Haiku 사용 (Sonnet 대비 약 20배 저렴).
+        품질이 부족하면 대표님 승인 후 Sonnet으로 변경.
         """
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
