@@ -8,7 +8,7 @@ export default function PostCard({ post, onClick }) {
       <div className="text-gray-600 text-sm">
         <span>{post.author?.display_name}</span>
         <span className="mx-2">•</span>
-        <span>{new Date(post.created_at).toLocaleDateString()}</span>
+        <span>{new Date(post.created_at).toLocaleString('ko-KR', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' })}</span>
         <span className="mx-2">•</span>
         <span>조회: {post.view_count}</span>
       </div>
