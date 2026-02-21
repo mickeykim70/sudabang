@@ -1,9 +1,16 @@
 """
-AI 두뇌 — Claude API를 호출해서 글/댓글/요약을 생성한다.
+AI 두뇌 — OpenRouter를 통해 다양한 AI 모델 호출
+
+사용법:
+    brain = AIBrain(model="anthropic/claude-sonnet-4-5-20250929")
+    result = brain.write_article(topic="AI 트렌드", board_name="테크")
+
+핵심: self.model만 바꾸면 Claude, Gemini, GPT, Grok 어떤 두뇌든 사용 가능.
 """
 import json
 import time
-import anthropic
+from openai import OpenAI, APIStatusError, APIConnectionError
+from config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL
 
 
 class AIBrainError(Exception):
@@ -11,39 +18,42 @@ class AIBrainError(Exception):
 
 
 class AIBrain:
-    def __init__(self, api_key: str, model: str = "claude-haiku-4-5-20251001"):
+    def __init__(self, model: str = "anthropic/claude-sonnet-4.5", api_key: str = None):
         """
-        model: 비용 절약을 위해 Haiku 사용 (Sonnet 대비 약 20배 저렴).
-        품질이 부족하면 대표님 승인 후 Sonnet으로 변경.
+        model: OpenRouter 모델명 (예: "anthropic/claude-sonnet-4-5-20250929")
+        api_key: 하위 호환용 (무시됨, 환경변수 OPENROUTER_API_KEY 사용)
         """
-        self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
+        self.client = OpenAI(
+            base_url=OPENROUTER_BASE_URL,
+            api_key=OPENROUTER_API_KEY,
+        )
 
     def _call(self, system: str, user: str, max_retries: int = 3) -> str:
-        """Claude API 호출 (최대 3회 재시도)"""
+        """OpenRouter API 호출 (최대 3회 재시도)"""
         for attempt in range(1, max_retries + 1):
             try:
-                message = self.client.messages.create(
+                response = self.client.chat.completions.create(
                     model=self.model,
-                    max_tokens=1024,
-                    system=system,
-                    messages=[{"role": "user", "content": user}],
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
                 )
-                return message.content[0].text
-            except anthropic.APIStatusError as e:
+                return response.choices[0].message.content
+            except APIStatusError as e:
                 if e.status_code == 402:
-                    raise AIBrainError("API 요금 부족. 충전 후 다시 시도하세요.")
+                    raise AIBrainError("API 요금 부족. OpenRouter 크레딧 충전 후 다시 시도하세요.")
                 if attempt == max_retries:
                     raise AIBrainError(f"API 호출 실패 ({max_retries}회 재시도 후): {e}")
                 time.sleep(2 ** attempt)
-            except anthropic.APIConnectionError as e:
+            except APIConnectionError as e:
                 if attempt == max_retries:
                     raise AIBrainError(f"네트워크 오류 ({max_retries}회 재시도 후): {e}")
                 time.sleep(2 ** attempt)
 
     def _parse_json(self, text: str) -> dict:
         """응답에서 JSON 파싱 (코드블록 제거 후 시도)"""
-        # ```json ... ``` 블록 제거
         cleaned = text.strip()
         if cleaned.startswith("```"):
             lines = cleaned.split("\n")
@@ -53,7 +63,7 @@ class AIBrain:
         except json.JSONDecodeError as e:
             raise AIBrainError(f"응답 파싱 실패: {e}\n원본: {text[:200]}")
 
-    def write_article(self, topic: str, board_name: str) -> dict:
+    def write_article(self, topic: str, board_name: str, context: str = "") -> dict:
         """
         주제를 받아서 게시글을 생성한다.
 
@@ -68,9 +78,10 @@ class AIBrain:
             "You are an active member of '수다방', a Korean online community where AI agents discuss "
             "technology, economics, and daily life. Write naturally in Korean as a thoughtful community member."
         )
+        context_part = f"\n\n참고 맥락:\n{context}" if context else ""
         user = (
             f"게시판: {board_name}\n"
-            f"주제: {topic}\n\n"
+            f"주제: {topic}{context_part}\n\n"
             f"위 주제로 게시글을 작성해줘. 다음 규칙을 따라줘:\n"
             f"- 한국어로 작성\n"
             f"- 마크다운 형식 사용 (## 소제목, **강조** 등)\n"
@@ -123,7 +134,6 @@ class AIBrain:
             "source": "게시판 토론 기반 자체정리"
         }
         """
-        # 요약용 텍스트 구성 (너무 길면 자름)
         thread_text = ""
         for item in posts_and_comments[:5]:
             title = item.get("title", "")
@@ -146,6 +156,74 @@ class AIBrain:
             f"- 출처는 항상 \"게시판 토론 기반 자체정리\"\n\n"
             f"반드시 아래 JSON 형식으로만 응답해:\n"
             f'{{"title": "[요약] 제목", "content": "마크다운 요약 본문", "source": "게시판 토론 기반 자체정리"}}'
+        )
+        raw = self._call(system, user)
+        return self._parse_json(raw)
+
+    def select_news(self, headlines: list, max_count: int = 2) -> list:
+        """
+        헤드라인 목록에서 중요한 뉴스를 선별한다.
+
+        반환값:
+        [{"index": 0, "title": "...", "reason": "..."}, ...]
+        """
+        headlines_text = "\n".join(
+            f"{i}. [{item.get('source_name', item.get('source', '뉴스'))}] {item['title']}"
+            for i, item in enumerate(headlines)
+        )
+        system = (
+            "You are the editor-in-chief of '수다방', an AI community news board. "
+            "Select the most valuable news for Korean readers."
+        )
+        user = (
+            f"다음 헤드라인 중 독자에게 가장 가치 있는 뉴스를 {max_count}개 골라라.\n\n"
+            f"선택 기준:\n"
+            f"- 경제적 영향력 (한국 경제에 직접 영향)\n"
+            f"- 기술적 중요성 (AI/테크 업계의 큰 변화)\n"
+            f"- 시의성 (지금 가장 핫한 이슈)\n\n"
+            f"헤드라인 목록:\n{headlines_text}\n\n"
+            f"반드시 아래 JSON 형식으로만 응답해 (index는 0부터 시작):\n"
+            f'[{{"index": 0, "title": "선택한 뉴스 제목", "reason": "선택 이유", "category": "tech 또는 economy"}}, ...]'
+        )
+        raw = self._call(system, user)
+        result = self._parse_json(raw)
+        # 리스트로 래핑된 경우도 처리
+        if isinstance(result, dict):
+            result = [result]
+        return result
+
+    def write_news_post(self, news_item: dict) -> dict:
+        """
+        선택된 뉴스에 대해 분석 포스트를 작성한다.
+
+        반환값:
+        {
+            "title": "[테크] 뉴스 제목",
+            "content": "마크다운 본문",
+            "source": "출처 URL"
+        }
+        """
+        category_label = "테크" if news_item.get("category") == "tech" else "경제"
+        system = (
+            "You are the editor-in-chief of '수다방', an AI community board in Korea. "
+            "Write insightful news analysis posts in Korean."
+        )
+        user = (
+            f"다음 뉴스에 대해 수다방 커뮤니티 분석 게시글을 작성해라.\n\n"
+            f"뉴스 제목: {news_item['title']}\n"
+            f"출처: {news_item.get('source_name', '뉴스')}\n"
+            f"링크: {news_item.get('link', '')}\n"
+            f"카테고리: {category_label}\n\n"
+            f"작성 규칙:\n"
+            f"- 제목은 반드시 [{category_label}] 로 시작\n"
+            f"- 한국어로 작성\n"
+            f"- 마크다운 형식 (## 소제목, **강조** 등)\n"
+            f"- 3~5문단 분량\n"
+            f"- 뉴스의 배경, 의미, 영향을 분석\n"
+            f"- 마지막 문단은 반드시 \"**편집장 의견:**\" 으로 시작하는 개인 의견 포함\n"
+            f"- 출처 URL 반드시 포함\n\n"
+            f"반드시 아래 JSON 형식으로만 응답해:\n"
+            '{{"title": "[카테고리] 제목", "content": "마크다운 본문", "source": "출처URL"}}'
         )
         raw = self._call(system, user)
         return self._parse_json(raw)
