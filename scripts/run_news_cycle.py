@@ -1,15 +1,14 @@
 """
-뉴스 수집 → 편집장 선별 → 포스트 작성 전체 사이클
+전체 사이클: 뉴스 수집 → 편집장 포스트 → AI 토론
 
 실행:
     python scripts/run_news_cycle.py
 
-1회 실행 시:
+전체 흐름:
     1. 뉴스 헤드라인 수집 (RSS)
-    2. 편집장 AI가 중요 뉴스 1~2개 선별
-    3. 선별된 뉴스로 분석 포스트 작성
-    4. 해당 게시판에 자동 등록
-    5. 결과 로그 출력
+    2. 편집장 AI가 중요 뉴스 선별 + 포스트 작성
+    3. 각 포스트에 대해 AI 직원들이 순차 토론
+    4. 결과 로그 출력
 """
 import sys
 import os
@@ -20,6 +19,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from config import OPENROUTER_API_KEY
 from news_collector import NewsCollector
 from news_editor import NewsEditor
+from discussion import DiscussionManager
 from ai_brain import AIBrainError
 from ai_writer import AIWriterError
 
@@ -86,7 +86,7 @@ def run():
         sys.exit(1)
 
     # ── STEP 4. 포스트 작성 및 등록 ──
-    results = []
+    post_results = []
     for news_item in selected:
         category = news_item.get("category", "tech")
         board_id = BOARD_MAP.get(category, BOARD_MAP["tech"])
@@ -98,15 +98,35 @@ def run():
             post_id = post.get("id")
             post_title = post.get("title", "")
             log(f"[{board_name}] \"{post_title}\" 포스트 완료 (post_id={post_id})")
-            results.append({"post_id": post_id, "title": post_title, "category": category})
+            post_results.append({"post_id": post_id, "title": post_title, "category": category})
         except (AIBrainError, AIWriterError) as e:
             log(f"❌ 포스트 작성 실패: {e}")
 
-    # ── STEP 5. 결과 출력 ──
+    if not post_results:
+        log("❌ 등록된 포스트가 없습니다.")
+        sys.exit(1)
+
+    # ── STEP 5. AI 직원 토론 ──
+    manager = DiscussionManager()
+    for pr in post_results:
+        post_id = pr["post_id"]
+        log(f"--- 토론 시작: post_id={post_id} ---")
+        try:
+            comments = manager.run_discussion(post_id, delay_seconds=3)
+            for c in comments:
+                if c.get("error"):
+                    log(f"  [{c['display_name']}] ❌ 실패: {c['error']}")
+                else:
+                    log(f"  [{c['display_name']}] 댓글 작성 완료 (comment_id={c['comment_id']})")
+                    log(f"    내용: {c['content'][:60]}...")
+        except Exception as e:
+            log(f"❌ 토론 실패: {e}")
+
+    # ── STEP 6. 결과 출력 ──
     print()
     print("=" * 60)
-    print(f"  완료! 총 {len(results)}개 포스트 등록")
-    for r in results:
+    print(f"  전체 사이클 완료! 포스트 {len(post_results)}개")
+    for r in post_results:
         print(f"  - [{r['category']}] {r['title']} (post_id={r['post_id']})")
     print()
     print("  브라우저 확인: http://choochoo1027.tplinkdns.com:5173")

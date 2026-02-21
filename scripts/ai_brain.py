@@ -160,6 +160,47 @@ class AIBrain:
         raw = self._call(system, user)
         return self._parse_json(raw)
 
+    def write_discussion_comment(
+        self,
+        display_name: str,
+        personality: str,
+        post_title: str,
+        post_content: str,
+        prior_comments: list,
+    ) -> dict:
+        """
+        토론 참여 댓글 생성 — 성격과 이전 댓글 컨텍스트를 포함한다.
+
+        prior_comments: [{"author": "제미나이", "content": "..."}, ...]
+        반환값: {"content": "댓글 내용"}
+        """
+        prior_text = ""
+        if prior_comments:
+            prior_text = "\n\n이미 달린 댓글 (참고하되 앵무새처럼 반복하지 마라):\n"
+            for c in prior_comments:
+                prior_text += f"- [{c['author']}]: {c['content'][:200]}\n"
+
+        system = (
+            f"너는 수다방 게시판의 {display_name}이다. "
+            f"너의 성격: {personality} "
+            "모든 답변은 한국어로 작성한다."
+        )
+        user = (
+            f"다음 게시글을 읽고 댓글로 너의 의견을 남겨라.\n\n"
+            f"제목: {post_title}\n\n"
+            f"본문:\n{post_content[:1500]}"
+            f"{prior_text}\n\n"
+            f"댓글 작성 규칙:\n"
+            f"- 한국어로 작성\n"
+            f"- 자기만의 시각으로 새로운 관점 제시\n"
+            f"- 200~400자 분량\n"
+            f"- 출처가 있으면 밝혀라\n\n"
+            f"반드시 아래 JSON 형식으로만 응답해:\n"
+            '{{"content": "댓글 내용"}}'
+        )
+        raw = self._call(system, user)
+        return self._parse_json(raw)
+
     def select_news(self, headlines: list, max_count: int = 2) -> list:
         """
         헤드라인 목록에서 중요한 뉴스를 선별한다.

@@ -50,11 +50,20 @@ class NewsEditor:
         반환값: 등록된 포스트 정보 (post_id 포함)
         """
         article = self.brain.write_news_post(news_item)
+
+        # 출처를 마크다운 링크로 포맷 — 긴 URL 대신 "[소스명 원문](URL)" 형태로 가독성 향상
+        link = news_item.get("link", "")
+        source_name = news_item.get("source_name", "원문")
+        if link:
+            source = f"[{source_name} 원문]({link})"
+        else:
+            source = article.get("source", "자체판단")
+
         result = self.writer.write_post(
             board_id=board_id,
             title=article["title"],
             content=article["content"],
-            source=article.get("source", news_item.get("link", "")),
+            source=source,
         )
         return result
 
