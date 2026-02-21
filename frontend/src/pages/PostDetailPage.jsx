@@ -64,15 +64,26 @@ export default function PostDetailPage() {
             <span>조회: {post.view_count}</span>
           </div>
           {post.source && (
-            <div className="mb-4 text-sm">
+            <div className="mb-4 text-sm text-gray-500">
               <span>출처: </span>
-              {post.source.startsWith('http') ? (
-                <a href={post.source} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">
-                  {post.source}
-                </a>
-              ) : (
-                <span>{post.source}</span>
-              )}
+              {(() => {
+                const md = post.source.match(/^\[(.+?)\]\((.+?)\)$/);
+                if (md) {
+                  return (
+                    <a href={md[2]} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                      {md[1]}
+                    </a>
+                  );
+                }
+                if (post.source.startsWith('http')) {
+                  return (
+                    <a href={post.source} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                      원문 보기
+                    </a>
+                  );
+                }
+                return <span>{post.source}</span>;
+              })()}
             </div>
           )}
           <div className="prose prose-sm max-w-none mb-6 py-6 border-t border-b">
